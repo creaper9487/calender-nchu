@@ -1,0 +1,57 @@
+javascript:(function(){
+  function getSevenBooleanArrays(){
+    const weekArrays = [
+      new Array(13).fill(false),
+      new Array(13).fill(false),
+      new Array(13).fill(false),
+      new Array(13).fill(false),
+      new Array(13).fill(false),
+      new Array(13).fill(false),
+      new Array(13).fill(false)
+    ];
+
+    const tableRows = document.querySelectorAll('table tr');
+    for(let i=1; i<tableRows.length && i<=13; i++){
+      const row = tableRows[i];
+      const cells = row.querySelectorAll('td');
+      if(cells.length >= 8){
+        for(let dayIndex=0; dayIndex<7; dayIndex++){
+          const cellContent = cells[dayIndex+1].textContent.trim();
+          if(cellContent && cellContent !== '　' && cellContent !== ''){
+            weekArrays[dayIndex][i-1] = true;
+          }
+        }
+      }
+    }
+    return weekArrays;
+  }
+
+  function extractAndExport(){
+    try{
+      const scheduleData = getSevenBooleanArrays();
+      console.log('=== Extracted Schedule Arrays ===');
+      const dayNames = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+      scheduleData.forEach((dayArray,index)=>{
+        console.log(`${dayNames[index]}:`, dayArray);
+      });
+
+      console.log('\n=== JSON Format (ready for parsing) ===');
+      console.log(JSON.stringify(scheduleData));
+
+      const encodedData = encodeURIComponent(JSON.stringify(scheduleData));
+      const targetUrl = `http://localhost:3000?schedule=${encodedData}`;
+
+      console.log('\n=== Opening localhost:3000 with data ===');
+      console.log('URL:', targetUrl);
+
+      alert('課表數據已提取！正在開啟新視窗...\nSchedule extracted! Opening new window...');
+      window.open(targetUrl,'_blank');
+      return scheduleData;
+    }catch(error){
+      alert('提取課表時發生錯誤：' + error.message + '\nError extracting schedule: ' + error.message);
+      console.error('Schedule extraction error:', error);
+    }
+  }
+
+  extractAndExport();
+})();

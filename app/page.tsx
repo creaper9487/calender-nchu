@@ -1,103 +1,154 @@
-import Image from "next/image";
+'use client';
+
+import Image from 'next/image';
+import { animate } from 'animejs';
+import { useEffect, useState, useRef } from 'react';
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [goMeeting, setGoMeeting] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+
+  //---------咪起來
+  // Hover animation functions
+  const handleMouseEnter = () => {
+    if (buttonRef.current) {
+      animate(buttonRef.current, {
+        scale: 1.1, // Scale to 110%
+        duration: 200, // Faster response - 200ms
+        easing: 'easeOutCubic', // Smoother easing
+        begin: () => {
+          // Optimize rendering during animation
+          if (buttonRef.current) {
+            buttonRef.current.style.willChange = 'transform';
+            buttonRef.current.style.backfaceVisibility = 'hidden';
+            buttonRef.current.style.perspective = '1000px';
+          }
+        }
+      });
+    }
+  };
+
+  const handleMouseLeave = () => {
+    if (buttonRef.current) {
+      animate(buttonRef.current, {
+        scale: 1.0, // Scale back to normal (100%)
+        duration: 200, // Faster response - 200ms  
+        easing: 'easeOutCubic', // Smoother easing
+        complete: () => {
+          // Clean up optimization after animation
+          if (buttonRef.current) {
+            buttonRef.current.style.willChange = 'auto';
+          }
+        }
+      });
+    }
+  };
+//-----------------
+  useEffect(() => {
+    const animation = animate('.rooftop', {
+      translateY: [0, -30],
+      opacity: [1, 0],
+      duration: 1000, // This is arbitrary, seeking will override it
+      easing: 'linear', // Linear easing for direct scroll correlation
+      autoplay: false,
+    });
+
+    const pinContainer = document.querySelector('.pin-container');
+    if (!pinContainer) return;
+
+    const scrollListener = () => {
+      const rect = pinContainer.getBoundingClientRect();
+      // scrollTop is the amount of the pinContainer that has been scrolled past
+      const scrollTop = -rect.top;
+      
+      // The animation should finish after scrolling 50vh
+      const animationDistance = window.innerHeight * 0.5;
+
+      if (scrollTop >= 0 && scrollTop <= animationDistance) {
+        // Calculate progress (0 to 1)
+        const progress = scrollTop / animationDistance;
+        animation.seek(animation.duration * progress);
+      } else if (scrollTop < 0) {
+        // Before the sticky section
+        animation.seek(0);
+      } else {
+        // After the sticky section
+        animation.seek(animation.duration);
+        setGoMeeting(true);
+      }
+    };
+
+    window.addEventListener('scroll', scrollListener);
+
+    // Cleanup listener on component unmount
+    return () => {
+      window.removeEventListener('scroll', scrollListener);
+    };
+  }, []); // Empty dependency array ensures this runs only once
+
+  return (
+    <>
+      {/* Pin container: h-[150vh] to pin for 50vh of scrolling */}
+      <div className="h-[200vh] relative pin-container">
+        <div className="sticky top-0 h-screen w-full">
+          <div className="min-h-screen p-8 flex flex-row">
+            <div className='flex-1 items-center flex flex-col justify-center'>
+              <h1 className="text-2xl font-bold transition-all duration-500 ease-in-out">中興夠咪亭</h1>
+              <h3 className="text-lg mt-4 transition-all duration-500 ease-in-out">
+                和你要咪的每個他
+                <span className={goMeeting ? 'inline-block opacity-0 transform -translate-x-2 transition-all duration-500 ease-in-out' : 'inline-block opacity-100 px-4 transform translate-x-0 transition-all duration-500 ease-in-out'}>
+                  ......
+                </span>
+                <span className={`text-3xl ${goMeeting ? 'inline-block opacity-100 transform translate-x-0 transition-all duration-500 ease-in-out' : 'inline-block opacity-0 transform translate-x-2 transition-all duration-500 ease-in-out'}`}>
+                  一起夠咪亭！
+                </span>
+              </h3>
+              <button 
+                ref={buttonRef}
+                className={`mt-8 px-4 py-2 border-b-yellow-400 border-t-blue-700 border-2 rounded-2xl text-black text-2xl font-bold cursor-pointer antialiased ${
+                  goMeeting 
+                    ? 'opacity-100 translate-y-0 scale-100 transition-all duration-500 ease-in-out' 
+                    : 'opacity-0 translate-y-4 scale-95 pointer-events-none transition-all duration-500 ease-in-out'
+                }`}
+                style={{
+                  transform: 'translateZ(0)', // Force hardware acceleration
+                  WebkitFontSmoothing: 'antialiased', // Better font rendering
+                  MozOsxFontSmoothing: 'grayscale'    // Better font rendering on Firefox
+                }} 
+                onMouseEnter={handleMouseEnter}
+                onMouseLeave={handleMouseLeave}
+                onClick={() => {
+                  // Handle button click
+                }}
+              >
+                快咪起來
+              </button>
+            </div>
+            <div className='flex-1 relative flex items-center justify-center w-full h-full'>
+              <div className='relative flex items-center justify-center'>
+                <Image
+                  src="/house.png"
+                  alt="Description of image"
+                  width={300}
+                  height={300}
+                  className='building z-0'
+                />
+                <Image
+                  src="/roof.png"
+                  alt="Description of image"
+                  width={300}
+                  height={100}
+                  className='rooftop z-10 absolute top-0 left-1/2 transform -translate-x-1/2'
+                />
+              </div>
+            </div>
+          </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+      </div>
+      <div className='h-screen bg-gray-200'> {/* Added bg color for visibility */}
+        <h2 className="text-2xl p-8">Second Screen</h2>
+      </div>
+    </>
   );
 }
