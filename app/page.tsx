@@ -3,10 +3,12 @@
 import Image from 'next/image';
 import { animate } from 'animejs';
 import { useEffect, useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 
 export default function Home() {
   const [goMeeting, setGoMeeting] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const router = useRouter();
 
 
   //---------咪起來
@@ -120,6 +122,7 @@ export default function Home() {
                 onMouseLeave={handleMouseLeave}
                 onClick={() => {
                   // Handle button click
+                  router.push('/startup');
                 }}
               >
                 快咪起來
