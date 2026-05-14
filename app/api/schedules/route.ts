@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
 import type { Course, DetailedScheduleData } from "@/lib/schedule-types";
 
-const EMAIL_RE = /^\S+@\S+\.\S+$/;
+const STUDENT_ID_RE = /^[A-Za-z0-9]{4,12}$/;
 const MAX_BODY_BYTES = 100 * 1024;
 
 function isCourse(value: unknown): value is Course {
@@ -39,11 +39,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = parsed as { email?: unknown; schedule?: unknown };
-    const email = typeof body.email === "string" ? body.email.trim() : "";
-    if (!EMAIL_RE.test(email)) {
+    const body = parsed as { studentId?: unknown; schedule?: unknown };
+    const studentId =
+      typeof body.studentId === "string" ? body.studentId.trim() : "";
+    if (!STUDENT_ID_RE.test(studentId)) {
       return NextResponse.json(
-        { ok: false, error: "Invalid email" },
+        { ok: false, error: "Invalid studentId" },
         { status: 400 },
       );
     }
@@ -82,7 +83,7 @@ export async function POST(request: Request) {
     const now = new Date();
 
     const result = await db.collection("schedules").updateOne(
-      { email },
+      { studentId },
       {
         $set: {
           studentName,
@@ -92,7 +93,7 @@ export async function POST(request: Request) {
           updatedAt: now,
         },
         $setOnInsert: {
-          email,
+          studentId,
           createdAt: now,
         },
       },
@@ -117,17 +118,17 @@ export async function POST(request: Request) {
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
-    const email = (url.searchParams.get("email") || "").trim();
-    if (!EMAIL_RE.test(email)) {
+    const studentId = (url.searchParams.get("studentId") || "").trim();
+    if (!STUDENT_ID_RE.test(studentId)) {
       return NextResponse.json(
-        { ok: false, error: "Invalid email" },
+        { ok: false, error: "Invalid studentId" },
         { status: 400 },
       );
     }
 
     const client = await clientPromise;
     const db = client.db("test");
-    const doc = await db.collection("schedules").findOne({ email });
+    const doc = await db.collection("schedules").findOne({ studentId });
     if (!doc) {
       return NextResponse.json(
         { ok: false, error: "Not found" },

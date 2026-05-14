@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { DetailedScheduleData } from "@/lib/schedule-types";
 
-const EMAIL_RE = /^\S+@\S+\.\S+$/;
+const STUDENT_ID_RE = /^[A-Za-z0-9]{4,12}$/;
 
 interface Props {
   schedule: DetailedScheduleData;
@@ -12,28 +12,24 @@ interface Props {
 type Status =
   | { kind: "idle" }
   | { kind: "posting" }
-  | { kind: "success"; email: string }
+  | { kind: "success"; studentId: string }
   | { kind: "error"; message: string };
 
 export default function ImportButton({ schedule }: Props) {
-  const defaultEmail =
-    schedule.studentName && /^[a-z0-9]+$/i.test(schedule.studentName)
-      ? `${schedule.studentName}@nchu.edu.tw`
-      : "";
-  const [email, setEmail] = useState(defaultEmail);
+  const [studentId, setStudentId] = useState(schedule.studentId || "");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
-  const emailValid = EMAIL_RE.test(email.trim());
+  const idValid = STUDENT_ID_RE.test(studentId.trim());
   const posting = status.kind === "posting";
 
   const submit = async () => {
-    if (!emailValid) return;
+    if (!idValid) return;
     setStatus({ kind: "posting" });
     try {
       const res = await fetch("/api/schedules", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), schedule }),
+        body: JSON.stringify({ studentId: studentId.trim(), schedule }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
@@ -43,7 +39,7 @@ export default function ImportButton({ schedule }: Props) {
         });
         return;
       }
-      setStatus({ kind: "success", email: email.trim() });
+      setStatus({ kind: "success", studentId: studentId.trim() });
     } catch (err) {
       setStatus({
         kind: "error",
@@ -59,11 +55,11 @@ export default function ImportButton({ schedule }: Props) {
       </h3>
       <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
         <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          onBlur={(e) => setEmail(e.target.value.trim())}
-          placeholder="your@email.com"
+          type="text"
+          value={studentId}
+          onChange={(e) => setStudentId(e.target.value)}
+          onBlur={(e) => setStudentId(e.target.value.trim())}
+          placeholder="學號 (e.g. s1234567)"
           disabled={posting}
           className="flex-1 p-2 border border-gray-300 rounded text-sm font-mono bg-gray-50 disabled:opacity-60"
         />
@@ -74,7 +70,7 @@ export default function ImportButton({ schedule }: Props) {
               ? () => setStatus({ kind: "idle" })
               : submit
           }
-          disabled={!emailValid && status.kind !== "success"}
+          disabled={!idValid && status.kind !== "success"}
           className={`px-4 py-2 rounded font-semibold transition-colors text-white ${
             posting
               ? "bg-blue-400 cursor-wait"
@@ -93,7 +89,7 @@ export default function ImportButton({ schedule }: Props) {
 
       {status.kind === "success" && (
         <div className="mt-3 p-2 bg-green-50 border border-green-200 text-green-800 rounded text-sm">
-          已匯入 ✓ ({status.email})
+          已匯入 ✓ (學號 {status.studentId})
         </div>
       )}
       {status.kind === "error" && (

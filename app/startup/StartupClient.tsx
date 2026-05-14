@@ -7,6 +7,7 @@ import type {
   DetailedScheduleData,
   ScheduleData,
 } from "@/lib/schedule-types";
+import { NCHU_TIME_SLOTS } from "@/lib/time-slots";
 import ImportButton from "./ImportButton";
 
 interface Props {
@@ -55,21 +56,7 @@ export default function StartupClient({ bookmarklet }: Props) {
 
   const renderLegacyScheduleTable = (schedule: boolean[][]) => {
     const dayNames = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"];
-    const timeSlots = [
-      "08:10-09:00",
-      "09:10-10:00",
-      "10:10-11:00",
-      "11:10-12:00",
-      "12:10-13:00",
-      "13:10-14:00",
-      "14:10-15:00",
-      "15:10-16:00",
-      "16:10-17:00",
-      "17:10-18:00",
-      "18:10-19:00",
-      "19:10-20:00",
-      "20:10-21:00",
-    ];
+    const timeSlots = NCHU_TIME_SLOTS;
 
     return (
       <div className="bg-white p-6 rounded-lg shadow-md overflow-x-auto">
@@ -123,6 +110,7 @@ export default function StartupClient({ bookmarklet }: Props) {
     const dayNames = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"];
     const {
       semester = "",
+      studentId = "",
       studentName = "",
       courses = [],
       timeSlots = [],
@@ -130,6 +118,7 @@ export default function StartupClient({ bookmarklet }: Props) {
 
     const detailed: DetailedScheduleData = {
       semester,
+      studentId,
       studentName,
       courses,
       timeSlots,
@@ -172,7 +161,12 @@ export default function StartupClient({ bookmarklet }: Props) {
               {semester}
             </h2>
             <h3 className="text-lg font-semibold text-gray-600">
-              {studentName} 的課表
+              {studentName || studentId} 的課表
+              {studentId && studentName && (
+                <span className="text-sm text-gray-400 ml-2 font-mono">
+                  ({studentId})
+                </span>
+              )}
             </h3>
           </div>
 

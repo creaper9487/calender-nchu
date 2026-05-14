@@ -10,6 +10,7 @@ export interface Course {
 
 export interface DetailedScheduleData {
   semester: string;
+  studentId: string;
   studentName: string;
   courses: Course[];
   timeSlots: string[];
@@ -19,13 +20,22 @@ export interface ScheduleData {
   legacy?: boolean;
   data?: boolean[][];
   semester?: string;
+  studentId?: string;
   studentName?: string;
   courses?: Course[];
   timeSlots?: string[];
 }
 
 export interface ScheduleDocument extends DetailedScheduleData {
-  email: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface FreeBlock {
+  dayOfWeek: number;
+  fromPeriod: number;
+  toPeriod: number;
+  length: number;
+  fromTime: string;
+  toTime: string;
 }
