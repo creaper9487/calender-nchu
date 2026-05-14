@@ -1,57 +1,82 @@
 javascript:(function(){
-  function getSevenBooleanArrays(){
-    const weekArrays = [
-      new Array(13).fill(false),
-      new Array(13).fill(false),
-      new Array(13).fill(false),
-      new Array(13).fill(false),
-      new Array(13).fill(false),
-      new Array(13).fill(false),
-      new Array(13).fill(false)
-    ];
-
-    const tableRows = document.querySelectorAll('table tr');
-    for(let i=1; i<tableRows.length && i<=13; i++){
-      const row = tableRows[i];
-      const cells = row.querySelectorAll('td');
-      if(cells.length >= 8){
-        for(let dayIndex=0; dayIndex<7; dayIndex++){
-          const cellContent = cells[dayIndex+1].textContent.trim();
-          if(cellContent && cellContent !== '　' && cellContent !== ''){
-            weekArrays[dayIndex][i-1] = true;
-          }
-        }
+  function parseCell(td){
+    var html = td.innerHTML.replace(/<br\s*\/?>/gi, '\n');
+    var tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    var raw = (tmp.textContent || '').replace(/　/g, ' ').trim();
+    if(!raw || raw === '*') return null;
+    var lines = raw.split(/\n+/).map(function(s){ return s.trim(); }).filter(Boolean);
+    var courseCode = '', room = '', instructor = '', courseName = '';
+    var remaining = [];
+    for(var i=0; i<lines.length; i++){
+      var line = lines[i];
+      if(!courseCode && /^[A-Z0-9]{4,}\b/.test(line)){ courseCode = line; continue; }
+      if(!room && /(館|室|樓|Lab|電腦教室|\bA\d+\b|\bB\d+\b)/.test(line)){ room = line; continue; }
+      remaining.push(line);
+    }
+    for(var j=0; j<remaining.length; j++){
+      var line2 = remaining[j];
+      if(!instructor && line2.length >= 2 && line2.length <= 6 && !/\d/.test(line2) && !/\s/.test(line2)){
+        instructor = line2;
+        remaining.splice(j, 1);
+        break;
       }
     }
-    return weekArrays;
-  }
-
-  function extractAndExport(){
-    try{
-      const scheduleData = getSevenBooleanArrays();
-      console.log('=== Extracted Schedule Arrays ===');
-      const dayNames = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
-      scheduleData.forEach((dayArray,index)=>{
-        console.log(`${dayNames[index]}:`, dayArray);
-      });
-
-      console.log('\n=== JSON Format (ready for parsing) ===');
-      console.log(JSON.stringify(scheduleData));
-
-      const encodedData = encodeURIComponent(JSON.stringify(scheduleData));
-      const targetUrl = `http://localhost:3000?schedule=${encodedData}`;
-
-      console.log('\n=== Opening localhost:3000 with data ===');
-      console.log('URL:', targetUrl);
-
-      alert('課表數據已提取！正在開啟新視窗...\nSchedule extracted! Opening new window...');
-      window.open(targetUrl,'_blank');
-      return scheduleData;
-    }catch(error){
-      alert('提取課表時發生錯誤：' + error.message + '\nError extracting schedule: ' + error.message);
-      console.error('Schedule extraction error:', error);
+    if(remaining.length){
+      remaining.sort(function(a, b){ return b.length - a.length; });
+      courseName = remaining[0];
     }
+    if(!courseName) courseName = lines[0] || raw;
+    return { courseName: courseName, instructor: instructor, room: room, courseCode: courseCode };
   }
 
-  extractAndExport();
+  function extractDetailed(){
+    var tableRows = document.querySelectorAll('table tr');
+    var timeSlots = [];
+    var courses = [];
+    for(var i=1; i<tableRows.length && i<=13; i++){
+      var cells = tableRows[i].querySelectorAll('td');
+      if(cells.length < 8) continue;
+      var timeSlot = (cells[0].textContent || '').trim();
+      timeSlots.push(timeSlot);
+      for(var dayIndex=0; dayIndex<7; dayIndex++){
+        var parsed = parseCell(cells[dayIndex+1]);
+        if(!parsed) continue;
+        courses.push({
+          courseName: parsed.courseName,
+          instructor: parsed.instructor,
+          room: parsed.room,
+          courseCode: parsed.courseCode,
+          dayOfWeek: dayIndex,
+          periodIndex: i - 1,
+          timeSlot: timeSlot
+        });
+      }
+    }
+    var semester = '';
+    var titleEl = document.querySelector('h1, h2, .title');
+    if(titleEl){
+      var semMatch = (titleEl.textContent || '').match(/\d{3}-?\d?/);
+      if(semMatch) semester = semMatch[0];
+    }
+    var bodyText = document.body ? (document.body.textContent || '') : '';
+    var idMatch = bodyText.match(/學號[：:]\s*([A-Za-z0-9]+)/);
+    var nameMatch = bodyText.match(/姓名[：:]\s*([^\s　]+)/);
+    var studentName = idMatch ? idMatch[1] : (nameMatch ? nameMatch[1] : '');
+    return { semester: semester, studentName: studentName, timeSlots: timeSlots, courses: courses };
+  }
+
+  try {
+    var data = extractDetailed();
+    if(!data.courses.length){
+      alert('找不到課程，請確認目前頁面為課表頁\nNo courses found, please ensure you are on the schedule page');
+      return;
+    }
+    var encoded = encodeURIComponent(JSON.stringify(data));
+    var targetUrl = 'http://localhost:3000/startup?schedule=' + encoded;
+    window.open(targetUrl, '_blank');
+  } catch (err) {
+    alert('擷取課表時發生錯誤：' + err.message);
+    console.error('Schedule extraction error:', err);
+  }
 })();
