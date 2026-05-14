@@ -17,8 +17,13 @@ export function getBookmarkletSource(): string {
 
   const compact = stripped.replace(/\s+/g, " ").trim();
 
-  cached = compact.startsWith("javascript:")
-    ? compact
-    : `javascript:${compact}`;
+  const appUrl = (
+    process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+  ).replace(/\/$/, "");
+  const withUrl = compact.replaceAll("http://localhost:3000", appUrl);
+
+  cached = withUrl.startsWith("javascript:")
+    ? withUrl
+    : `javascript:${withUrl}`;
   return cached;
 }

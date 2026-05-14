@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
+import { getDb } from "@/lib/db";
 import type { Course, DetailedScheduleData } from "@/lib/schedule-types";
 
 const STUDENT_ID_RE = /^[A-Za-z0-9]{4,12}$/;
@@ -78,8 +78,7 @@ export async function POST(request: Request) {
     const semester =
       typeof schedule.semester === "string" ? schedule.semester : "";
 
-    const client = await clientPromise;
-    const db = client.db("test");
+    const db = await getDb();
     const now = new Date();
 
     const result = await db.collection("schedules").updateOne(
@@ -126,8 +125,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const client = await clientPromise;
-    const db = client.db("test");
+    const db = await getDb();
     const doc = await db.collection("schedules").findOne({ studentId });
     if (!doc) {
       return NextResponse.json(

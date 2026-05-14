@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import type { DetailedScheduleData } from "@/lib/schedule-types";
 
@@ -88,8 +89,14 @@ export default function ImportButton({ schedule }: Props) {
       </div>
 
       {status.kind === "success" && (
-        <div className="mt-3 p-2 bg-green-50 border border-green-200 text-green-800 rounded text-sm">
-          已匯入 ✓ (學號 {status.studentId})
+        <div className="mt-3 p-2 bg-green-50 border border-green-200 text-green-800 rounded text-sm flex items-center justify-between gap-2 flex-wrap">
+          <span>已匯入 ✓ (學號 {status.studentId})</span>
+          <Link
+            href={`/match?ids=${encodeURIComponent(status.studentId)}`}
+            className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded font-semibold text-xs"
+          >
+            去找共同空堂 →
+          </Link>
         </div>
       )}
       {status.kind === "error" && (

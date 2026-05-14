@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
+import { getDb } from "@/lib/db";
 import {
   buildBusyMask,
   findBlocks,
   intersectFree,
   rankBlocks,
 } from "@/lib/matching";
-import clientPromise from "@/lib/mongodb";
 import type { Course } from "@/lib/schedule-types";
 
 const STUDENT_ID_RE = /^[A-Za-z0-9]{4,12}$/;
@@ -68,8 +68,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const client = await clientPromise;
-    const db = client.db("test");
+    const db = await getDb();
     const docs = await db
       .collection("schedules")
       .find({ studentId: { $in: requested } })
