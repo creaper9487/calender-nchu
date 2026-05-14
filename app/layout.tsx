@@ -24,9 +24,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className=" scrollbar-hidden">
-        {children}
-      </body>
+      <body className=" scrollbar-hidden">{children}</body>
     </html>
   );
 }
