@@ -39,3 +39,8 @@ export interface FreeBlock {
   fromTime: string;
   toTime: string;
 }
+
+export interface RankedBlock extends FreeBlock {
+  score: number;
+  isWeekday: boolean;
+}

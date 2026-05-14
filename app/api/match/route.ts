@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { buildBusyMask, findBlocks, intersectFree } from "@/lib/matching";
+import {
+  buildBusyMask,
+  findBlocks,
+  intersectFree,
+  rankBlocks,
+} from "@/lib/matching";
 import clientPromise from "@/lib/mongodb";
 import type { Course } from "@/lib/schedule-types";
 
@@ -90,7 +95,7 @@ export async function POST(request: Request) {
 
     const busyMasks = docs.map((d) => buildBusyMask(d.courses || []));
     const commonFree = intersectFree(busyMasks);
-    const blocks = findBlocks(commonFree);
+    const blocks = rankBlocks(findBlocks(commonFree));
 
     return NextResponse.json({
       ok: true,

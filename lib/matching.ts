@@ -1,4 +1,4 @@
-import type { Course, FreeBlock } from "./schedule-types";
+import type { Course, FreeBlock, RankedBlock } from "./schedule-types";
 import {
   DAYS_PER_WEEK,
   NCHU_TIME_SLOTS,
@@ -74,6 +74,31 @@ function pushBlock(
     fromTime: periodStart(from),
     toTime: periodEnd(to),
   });
+}
+
+const WEEKDAY_BONUS = PERIODS_PER_DAY + 1;
+
+export function isWeekday(dayOfWeek: number): boolean {
+  return dayOfWeek >= 0 && dayOfWeek < 5;
+}
+
+export function scoreBlock(block: FreeBlock): number {
+  return block.length + (isWeekday(block.dayOfWeek) ? WEEKDAY_BONUS : 0);
+}
+
+export function rankBlocks(blocks: FreeBlock[]): RankedBlock[] {
+  return blocks
+    .map((b) => ({
+      ...b,
+      score: scoreBlock(b),
+      isWeekday: isWeekday(b.dayOfWeek),
+    }))
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        a.dayOfWeek - b.dayOfWeek ||
+        a.fromPeriod - b.fromPeriod,
+    );
 }
 
 export { NCHU_TIME_SLOTS };
