@@ -1,36 +1,54 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 中興夠咪亭
 
-## Getting Started
+從興大課表找出和朋友的共同空堂，一起夠咪亭。
 
-First, run the development server:
+Next.js 15 (App Router) + React 19 + TypeScript + MongoDB。
+
+## 開發
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
+cp .env.example .env.local   # 然後填 MONGODB_URI
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+開 [http://localhost:3000](http://localhost:3000)。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 環境變數
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| 名稱 | 必要 | 說明 |
+| --- | --- | --- |
+| `MONGODB_URI` | ✅ | 連線字串，使用 `test` database 的 `schedules` collection |
+| `NEXT_PUBLIC_APP_URL` | 部署時 | bookmarklet 會把使用者導回這個 URL（例：`https://calender-nchu.example.com`），未設定時 fallback 到 `http://localhost:3000` |
 
-## Learn More
+## 流程
 
-To learn more about Next.js, take a look at the following resources:
+1. **匯入課表** — `/startup` 頁複製 bookmarklet 為書籤
+2. 登入興大 SSO 後到 [課表頁](https://cportal.nchu.edu.tw/cofsys/plsql/vocscrd_table)
+3. 點書籤 → 自動開新分頁回 `/startup?schedule=...` 顯示 detailed 課表
+4. 輸入學號 → 「匯入到我的帳號」→ upsert 進 MongoDB
+5. **找空堂** — `/match` 輸入多個學號 → 顯示共同空堂 ranked blocks
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## API
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Method | Path | Body / Query | 說明 |
+| --- | --- | --- | --- |
+| POST | `/api/schedules` | `{ studentId, schedule }` | upsert 一份課表 |
+| GET | `/api/schedules?studentId=...` | — | 開發用：查單筆 |
+| POST | `/api/match` | `{ studentIds: string[] }` | 多人共同空堂，回 ranked blocks |
 
-## Deploy on Vercel
+`schedules` collection 在第一次 API 呼叫時會自動建 `{ studentId: 1 }` unique index。
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 排序啟發
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`score = length + (isWeekday ? 14 : 0)`
+平日永遠優先於週末，同類內以連續長度排序。`lib/matching.ts`。
+
+## 指令
+
+| Command | 說明 |
+| --- | --- |
+| `pnpm dev` | dev server (turbopack) |
+| `pnpm build` | production build |
+| `pnpm lint` | biome check |
+| `pnpm format` | biome format |
