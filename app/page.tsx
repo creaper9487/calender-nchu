@@ -10,160 +10,147 @@ export default function Home() {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const router = useRouter();
 
-  //---------咪起來
-  // Hover animation functions
   const handleMouseEnter = () => {
-    if (buttonRef.current) {
-      animate(buttonRef.current, {
-        scale: 1.1, // Scale to 110%
-        duration: 200, // Faster response - 200ms
-        easing: "easeOutCubic", // Smoother easing
-        begin: () => {
-          // Optimize rendering during animation
-          if (buttonRef.current) {
-            buttonRef.current.style.willChange = "transform";
-            buttonRef.current.style.backfaceVisibility = "hidden";
-            buttonRef.current.style.perspective = "1000px";
-          }
-        },
-      });
-    }
+    if (!buttonRef.current) return;
+    animate(buttonRef.current, {
+      scale: 1.1,
+      duration: 200,
+      easing: "easeOutCubic",
+    });
   };
 
   const handleMouseLeave = () => {
-    if (buttonRef.current) {
-      animate(buttonRef.current, {
-        scale: 1.0, // Scale back to normal (100%)
-        duration: 200, // Faster response - 200ms
-        easing: "easeOutCubic", // Smoother easing
-        complete: () => {
-          // Clean up optimization after animation
-          if (buttonRef.current) {
-            buttonRef.current.style.willChange = "auto";
-          }
-        },
-      });
-    }
+    if (!buttonRef.current) return;
+    animate(buttonRef.current, {
+      scale: 1.0,
+      duration: 200,
+      easing: "easeOutCubic",
+    });
   };
-  //-----------------
+
   useEffect(() => {
+    const reducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+
+    if (reducedMotion) {
+      setGoMeeting(true);
+      const roof = document.querySelector<HTMLElement>(".rooftop");
+      if (roof) roof.style.opacity = "0";
+      return;
+    }
+
     const animation = animate(".rooftop", {
       translateY: [0, -30],
       opacity: [1, 0],
-      duration: 1000, // This is arbitrary, seeking will override it
-      easing: "linear", // Linear easing for direct scroll correlation
+      duration: 1000,
+      easing: "linear",
       autoplay: false,
     });
 
     const pinContainer = document.querySelector(".pin-container");
     if (!pinContainer) return;
 
-    const scrollListener = () => {
-      const rect = pinContainer.getBoundingClientRect();
-      // scrollTop is the amount of the pinContainer that has been scrolled past
-      const scrollTop = -rect.top;
+    let rafId = 0;
+    let pending = false;
 
-      // The animation should finish after scrolling 50vh
+    const tick = () => {
+      pending = false;
+      const rect = pinContainer.getBoundingClientRect();
+      const scrollTop = -rect.top;
       const animationDistance = window.innerHeight * 0.5;
 
-      if (scrollTop >= 0 && scrollTop <= animationDistance) {
-        // Calculate progress (0 to 1)
-        const progress = scrollTop / animationDistance;
-        animation.seek(animation.duration * progress);
-      } else if (scrollTop < 0) {
-        // Before the sticky section
+      if (scrollTop < 0) {
         animation.seek(0);
+      } else if (scrollTop <= animationDistance) {
+        animation.seek(animation.duration * (scrollTop / animationDistance));
       } else {
-        // After the sticky section
         animation.seek(animation.duration);
         setGoMeeting(true);
       }
     };
 
-    window.addEventListener("scroll", scrollListener);
-
-    // Cleanup listener on component unmount
-    return () => {
-      window.removeEventListener("scroll", scrollListener);
+    const onScroll = () => {
+      if (pending) return;
+      pending = true;
+      rafId = requestAnimationFrame(tick);
     };
-  }, []); // Empty dependency array ensures this runs only once
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    tick();
+
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(rafId);
+    };
+  }, []);
 
   return (
-    <>
-      {/* Pin container: h-[150vh] to pin for 50vh of scrolling */}
-      <div className="h-[200vh] relative pin-container">
-        <div className="sticky top-0 h-screen w-full">
-          <div className="min-h-screen p-8 flex flex-row">
-            <div className="flex-1 items-center flex flex-col justify-center">
-              <h1 className="text-2xl font-bold transition-all duration-500 ease-in-out">
-                中興夠咪亭
-              </h1>
-              <h3 className="text-lg mt-4 transition-all duration-500 ease-in-out">
-                和你要咪的每個他
-                <span
-                  className={
-                    goMeeting
-                      ? "inline-block opacity-0 transform -translate-x-2 transition-all duration-500 ease-in-out"
-                      : "inline-block opacity-100 px-4 transform translate-x-0 transition-all duration-500 ease-in-out"
-                  }
-                >
-                  ......
-                </span>
-                <span
-                  className={`text-3xl ${goMeeting ? "inline-block opacity-100 transform translate-x-0 transition-all duration-500 ease-in-out" : "inline-block opacity-0 transform translate-x-2 transition-all duration-500 ease-in-out"}`}
-                >
-                  一起夠咪亭！
-                </span>
-              </h3>
-              <button
-                type="button"
-                ref={buttonRef}
-                className={`mt-8 px-4 py-2 border-b-yellow-400 border-t-blue-700 border-2 rounded-2xl text-black text-2xl font-bold cursor-pointer antialiased ${
+    <div className="h-[200vh] relative pin-container">
+      <div className="sticky top-0 h-screen w-full">
+        <div className="min-h-screen p-8 flex flex-col md:flex-row">
+          <div className="flex-1 items-center flex flex-col justify-center">
+            <h1 className="text-2xl font-bold">中興夠咪亭</h1>
+            <h3 className="text-lg mt-4">
+              和你要咪的每個他
+              <span
+                className={
                   goMeeting
-                    ? "opacity-100 translate-y-0 scale-100 transition-all duration-500 ease-in-out"
-                    : "opacity-0 translate-y-4 scale-95 pointer-events-none transition-all duration-500 ease-in-out"
-                }`}
-                style={{
-                  transform: "translateZ(0)", // Force hardware acceleration
-                  WebkitFontSmoothing: "antialiased", // Better font rendering
-                  MozOsxFontSmoothing: "grayscale", // Better font rendering on Firefox
-                }}
-                onMouseEnter={handleMouseEnter}
-                onMouseLeave={handleMouseLeave}
-                onClick={() => {
-                  // Handle button click
-                  router.push("/startup");
-                }}
+                    ? "inline-block opacity-0 -translate-x-2 transition-all duration-500"
+                    : "inline-block opacity-100 px-4 transition-all duration-500"
+                }
               >
-                快咪起來
-              </button>
-            </div>
-            <div className="flex-1 relative flex items-center justify-center w-full h-full">
-              <div className="relative flex items-center justify-center">
-                <Image
-                  src="/house.png"
-                  alt="Description of image"
-                  width={300}
-                  height={300}
-                  className="building z-0"
-                />
-                <Image
-                  src="/roof.png"
-                  alt="Description of image"
-                  width={300}
-                  height={100}
-                  className="rooftop z-10 absolute top-0 left-1/2 transform -translate-x-1/2"
-                />
-              </div>
+                ......
+              </span>
+              <span
+                className={`text-3xl inline-block transition-all duration-500 ${
+                  goMeeting
+                    ? "opacity-100 translate-x-0"
+                    : "opacity-0 translate-x-2"
+                }`}
+              >
+                一起夠咪亭！
+              </span>
+            </h3>
+            <button
+              type="button"
+              ref={buttonRef}
+              aria-hidden={!goMeeting}
+              tabIndex={goMeeting ? 0 : -1}
+              className={`mt-8 px-4 py-2 border-b-yellow-400 border-t-blue-700 border-2 rounded-2xl text-black text-2xl font-bold cursor-pointer transition-all duration-500 ${
+                goMeeting
+                  ? "opacity-100 translate-y-0 scale-100"
+                  : "opacity-0 translate-y-4 scale-95 pointer-events-none"
+              }`}
+              onMouseEnter={handleMouseEnter}
+              onMouseLeave={handleMouseLeave}
+              onClick={() => router.push("/startup")}
+            >
+              快咪起來
+            </button>
+          </div>
+          <div className="flex-1 relative flex items-center justify-center w-full h-full">
+            <div className="relative flex items-center justify-center">
+              <Image
+                src="/house.png"
+                alt="夠咪亭建築"
+                width={300}
+                height={300}
+                priority
+                className="building z-0"
+              />
+              <Image
+                src="/roof.png"
+                alt=""
+                width={300}
+                height={100}
+                priority
+                className="rooftop z-10 absolute top-0 left-1/2 -translate-x-1/2"
+              />
             </div>
           </div>
         </div>
       </div>
-      <div className="h-screen bg-gray-200">
-        {" "}
-        {/* Added bg color for visibility */}
-        <h2 className="text-2xl p-8">Second Screen</h2>
-      </div>
-    </>
+    </div>
   );
 }

@@ -17,6 +17,16 @@ export const NCHU_TIME_SLOTS = [
 export const PERIODS_PER_DAY = NCHU_TIME_SLOTS.length;
 export const DAYS_PER_WEEK = 7;
 
+export const DAY_NAMES_ZH = [
+  "週一",
+  "週二",
+  "週三",
+  "週四",
+  "週五",
+  "週六",
+  "週日",
+] as const;
+
 export function periodStart(periodIndex: number): string {
   return NCHU_TIME_SLOTS[periodIndex].split("-")[0];
 }

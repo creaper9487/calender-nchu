@@ -7,8 +7,8 @@ import {
   rankBlocks,
 } from "@/lib/matching";
 import type { Course } from "@/lib/schedule-types";
+import { STUDENT_ID_RE } from "@/lib/student-id";
 
-const STUDENT_ID_RE = /^[A-Za-z0-9]{4,12}$/;
 const MAX_STUDENTS = 20;
 const MAX_BODY_BYTES = 16 * 1024;
 

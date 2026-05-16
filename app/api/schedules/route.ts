@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import type { Course, DetailedScheduleData } from "@/lib/schedule-types";
+import { STUDENT_ID_RE } from "@/lib/student-id";
 
-const STUDENT_ID_RE = /^[A-Za-z0-9]{4,12}$/;
 const MAX_BODY_BYTES = 100 * 1024;
 
 function isCourse(value: unknown): value is Course {

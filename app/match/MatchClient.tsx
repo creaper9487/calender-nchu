@@ -1,11 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { RankedBlock } from "@/lib/schedule-types";
+import { STUDENT_ID_RE } from "@/lib/student-id";
+import { DAY_NAMES_ZH } from "@/lib/time-slots";
 
-const STUDENT_ID_RE = /^[A-Za-z0-9]{4,12}$/;
-const DAY_NAMES = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"];
+const MAX_IDS = 20;
 
 interface MatchResponse {
   ok: boolean;
@@ -24,28 +26,33 @@ type Status =
 
 export default function MatchClient() {
   const searchParams = useSearchParams();
+  const inputId = useId();
+  const abortRef = useRef<AbortController | null>(null);
+
   const initialIds = useMemo(() => {
     const raw = searchParams.get("ids") || "";
-    return raw
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => STUDENT_ID_RE.test(s));
+    return Array.from(
+      new Set(
+        raw
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => STUDENT_ID_RE.test(s)),
+      ),
+    ).slice(0, MAX_IDS);
   }, [searchParams]);
 
   const [ids, setIds] = useState<string[]>(initialIds);
   const [draft, setDraft] = useState("");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
+  useEffect(() => () => abortRef.current?.abort(), []);
+
   const addDraft = () => {
     const next = draft.trim();
     if (!STUDENT_ID_RE.test(next)) return;
-    if (ids.includes(next)) {
-      setDraft("");
-      return;
-    }
-    if (ids.length >= 20) return;
-    setIds([...ids, next]);
     setDraft("");
+    if (ids.includes(next) || ids.length >= MAX_IDS) return;
+    setIds([...ids, next]);
   };
 
   const removeId = (id: string) => {
@@ -62,15 +69,20 @@ export default function MatchClient() {
   };
 
   const submit = async () => {
-    if (ids.length < 1) return;
+    if (ids.length < 2) return;
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
     setStatus({ kind: "loading" });
     try {
       const res = await fetch("/api/match", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ studentIds: ids }),
+        signal: ac.signal,
       });
       const data: MatchResponse = await res.json();
+      if (ac.signal.aborted) return;
       if (!res.ok || !data.ok) {
         setStatus({
           kind: "err",
@@ -80,6 +92,7 @@ export default function MatchClient() {
       }
       setStatus({ kind: "ok", data });
     } catch (err) {
+      if (ac.signal.aborted) return;
       setStatus({
         kind: "err",
         message: err instanceof Error ? err.message : "Network error",
@@ -88,6 +101,7 @@ export default function MatchClient() {
   };
 
   const draftValid = STUDENT_ID_RE.test(draft.trim());
+  const canSubmit = ids.length >= 2 && status.kind !== "loading";
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -97,12 +111,22 @@ export default function MatchClient() {
             找共同空堂
           </h1>
           <p className="text-gray-600 text-sm">
-            輸入要約的人的學號（含自己），按 Enter 或逗號加入。
+            輸入要約的人的學號（含自己），按 Enter 或逗號加入。或
+            <Link
+              href="/group/new"
+              className="text-blue-600 underline mx-1 hover:text-blue-800"
+            >
+              建立群組讓對方自己加入
+            </Link>
+            。
           </p>
         </header>
 
         <section className="bg-white p-4 rounded-lg shadow-md">
-          <div className="flex flex-wrap items-center gap-2 p-2 border border-gray-300 rounded bg-gray-50 min-h-[3rem]">
+          <label htmlFor={inputId} className="sr-only">
+            學號清單
+          </label>
+          <div className="flex flex-wrap items-center gap-2 p-2 border border-gray-300 rounded bg-gray-50 min-h-[3rem] focus-within:ring-2 focus-within:ring-blue-400">
             {ids.map((id) => (
               <span
                 key={id}
@@ -112,7 +136,7 @@ export default function MatchClient() {
                 <button
                   type="button"
                   onClick={() => removeId(id)}
-                  className="text-blue-600 hover:text-blue-900 font-bold leading-none"
+                  className="text-blue-600 hover:text-blue-900 font-bold leading-none focus:outline-none focus:ring-2 focus:ring-blue-400 rounded"
                   aria-label={`移除 ${id}`}
                 >
                   ×
@@ -120,19 +144,24 @@ export default function MatchClient() {
               </span>
             ))}
             <input
+              id={inputId}
               type="text"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={onKeyDown}
               onBlur={addDraft}
               placeholder={ids.length ? "" : "學號 (e.g. s1234567)"}
+              autoComplete="off"
               className="flex-1 min-w-[8rem] bg-transparent outline-none text-sm font-mono p-1"
             />
           </div>
 
-          <div className="mt-3 flex items-center justify-between">
+          <div className="mt-3 flex items-center justify-between flex-wrap gap-2">
             <span className="text-xs text-gray-500">
-              {ids.length}/20 人
+              {ids.length}/{MAX_IDS} 人
+              {ids.length < 2 && (
+                <span className="text-gray-400 ml-2">（至少 2 人）</span>
+              )}
               {draft && !draftValid && (
                 <span className="text-red-600 ml-2">學號格式錯誤</span>
               )}
@@ -140,8 +169,8 @@ export default function MatchClient() {
             <button
               type="button"
               onClick={submit}
-              disabled={ids.length < 1 || status.kind === "loading"}
-              className="px-4 py-2 rounded font-semibold text-white bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              disabled={!canSubmit}
+              className="px-4 py-2 rounded font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
               {status.kind === "loading" ? "查詢中..." : "找共同空堂"}
             </button>
@@ -149,7 +178,10 @@ export default function MatchClient() {
         </section>
 
         {status.kind === "err" && (
-          <div className="p-3 bg-red-50 border border-red-200 text-red-800 rounded text-sm">
+          <div
+            role="alert"
+            className="p-3 bg-red-50 border border-red-200 text-red-800 rounded text-sm"
+          >
             查詢失敗：{status.message}
           </div>
         )}
@@ -162,7 +194,7 @@ export default function MatchClient() {
 
 function Result({ data }: { data: MatchResponse }) {
   return (
-    <section className="space-y-4">
+    <section className="space-y-4" aria-live="polite">
       <div className="bg-white p-4 rounded-lg shadow-md text-sm">
         <div>
           找到{" "}
@@ -196,25 +228,34 @@ function Result({ data }: { data: MatchResponse }) {
       ) : (
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
           <table className="w-full text-sm">
+            <caption className="sr-only">
+              共同空堂列表，依長度與平日優先排序
+            </caption>
             <thead className="bg-gray-100">
               <tr>
-                <th className="p-3 text-left font-semibold">星期</th>
-                <th className="p-3 text-left font-semibold">時段</th>
-                <th className="p-3 text-center font-semibold">節數</th>
-                <th className="p-3 text-center font-semibold">類型</th>
-                <th className="p-3 text-right font-semibold">分數</th>
+                <th scope="col" className="p-3 text-left font-semibold">
+                  星期
+                </th>
+                <th scope="col" className="p-3 text-left font-semibold">
+                  時段
+                </th>
+                <th scope="col" className="p-3 text-center font-semibold">
+                  節數
+                </th>
               </tr>
             </thead>
             <tbody>
               {data.blocks.map((b) => (
                 <tr
                   key={`${b.dayOfWeek}-${b.fromPeriod}`}
-                  className="border-t border-gray-100"
+                  className={`border-t border-gray-100 ${
+                    b.isWeekday ? "" : "text-gray-500"
+                  }`}
                 >
-                  <td className="p-3 font-semibold text-gray-700">
-                    {DAY_NAMES[b.dayOfWeek]}
+                  <td className="p-3 font-semibold">
+                    {DAY_NAMES_ZH[b.dayOfWeek]}
                   </td>
-                  <td className="p-3 font-mono text-gray-700">
+                  <td className="p-3 font-mono">
                     {b.fromTime}–{b.toTime}
                     <span className="text-xs text-gray-400 ml-2">
                       第 {b.fromPeriod + 1}
@@ -222,20 +263,6 @@ function Result({ data }: { data: MatchResponse }) {
                     </span>
                   </td>
                   <td className="p-3 text-center">{b.length}</td>
-                  <td className="p-3 text-center">
-                    <span
-                      className={`text-xs px-2 py-1 rounded ${
-                        b.isWeekday
-                          ? "bg-blue-100 text-blue-800"
-                          : "bg-gray-100 text-gray-600"
-                      }`}
-                    >
-                      {b.isWeekday ? "平日" : "週末"}
-                    </span>
-                  </td>
-                  <td className="p-3 text-right font-mono text-gray-500">
-                    {b.score}
-                  </td>
                 </tr>
               ))}
             </tbody>
