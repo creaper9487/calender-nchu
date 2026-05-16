@@ -12,6 +12,10 @@ export async function getDb(): Promise<Db> {
       await db
         .collection("schedules")
         .createIndex({ studentId: 1 }, { unique: true });
+      await db.collection("groups").createIndex({ code: 1 }, { unique: true });
+      await db
+        .collection("groups")
+        .createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     } catch (e) {
       indexesEnsured = false;
       throw e;

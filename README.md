@@ -44,6 +44,12 @@ pnpm dev
 `score = length + (isWeekday ? 14 : 0)`
 平日永遠優先於週末，同類內以連續長度排序。`lib/matching.ts`。
 
+## 行動版（Flutter）
+
+`mobile/` 子資料夾為 iOS/Android 客戶端，重用同一個 backend，只負責 match 與
+group 互通，不做課表擷取（仍走桌機 bookmarklet）。詳見
+[`mobile/README.md`](./mobile/README.md)。
+
 ## 指令
 
 | Command | 說明 |
