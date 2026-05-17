@@ -19,6 +19,7 @@ pnpm dev
 | 名稱 | 必要 | 說明 |
 | --- | --- | --- |
 | `MONGODB_URI` | ✅ | 連線字串，使用 `test` database 的 `schedules` collection |
+| `CLAIM_TOKEN_SECRET` | production 必要 | HMAC 金鑰，至少 16 字。用來簽認領 token；dev 沒設會用一次性隨機值（重啟即失效） |
 | `NEXT_PUBLIC_APP_URL` | 部署時 | bookmarklet 會把使用者導回這個 URL（例：`https://calender-nchu.example.com`），未設定時 fallback 到 `http://localhost:3000` |
 
 ## 流程
@@ -28,21 +29,67 @@ pnpm dev
 3. 點書籤 → 自動開新分頁回 `/startup?schedule=...` 顯示 detailed 課表
 4. 輸入學號 → 「匯入到我的帳號」→ upsert 進 MongoDB
 5. **找空堂** — `/match` 輸入多個學號 → 顯示共同空堂 ranked blocks
+6. **建群組 / 投票 / 鎖定** — `/group/new` 建立 → 分享連結讓朋友加入 → 各自在 free
+   block 上投票 → 創建者選一個並指定日期 → 一鍵加入 Google Calendar 或下載 .ics
+   給 TimeTree / Apple / Outlook
 
 ## API
 
 | Method | Path | Body / Query | 說明 |
 | --- | --- | --- | --- |
-| POST | `/api/schedules` | `{ studentId, schedule }` | upsert 一份課表 |
-| GET | `/api/schedules?studentId=...` | — | 開發用：查單筆 |
-| POST | `/api/match` | `{ studentIds: string[] }` | 多人共同空堂，回 ranked blocks |
+| POST | `/api/schedules` | `{ studentId, schedule }` | upsert 一份課表；第一次成功會在 response 設 cookie，之後寫入同學號必須帶該 cookie |
+| GET | `/api/schedules?studentId=...` | — | **僅 dev**；production 回 404 |
+| DELETE | `/api/schedules` | — | 刪除自己的課表（需 session） |
+| GET | `/api/me` | — | `{ studentId | null }`，從 session cookie 解 |
+| POST | `/api/match` | `{ studentIds: string[], me }` | 多人共同空堂；必須有 session，`me` 必須等於 session.studentId 且 ∈ studentIds |
+| POST | `/api/groups` | `{}` | 建立群組；若有 session，創建者自動加入 |
+| GET | `/api/groups/[code]` | — | 群組狀態（成員、共同空堂） |
+| POST | `/api/groups/[code]/join` | `{}` | 加入群組（需 session，studentId 取自 session） |
+| POST | `/api/groups/[code]/extend` | `{}` | 延長 24 小時（需 session 且為成員） |
+| POST | `/api/groups/[code]/vote` | `{ blockKey }` | 切換對某個 free block 的投票（需 session 且為成員；已 confirmed 的群組回 409） |
+| POST | `/api/groups/[code]/confirm` | `{ blockKey, date, title, location? }` | 創建者鎖定一個 block + 具體日期；server 會核對 blockKey 仍是目前真實 free block |
+| DELETE | `/api/groups/[code]/confirm` | — | 取消鎖定（僅創建者） |
+| GET | `/api/groups/[code]/ics` | — | 已確認會議的 .ics 檔（TimeTree / Apple / Outlook 都可匯入） |
 
 `schedules` collection 在第一次 API 呼叫時會自動建 `{ studentId: 1 }` unique index。
+
+## 安全模型（Tier 0 + Tier 1）
+
+- **Claim token**：第一次 `POST /api/schedules` 為該學號發 HMAC-bound HttpOnly
+  cookie；之後寫入該學號必須帶 cookie，否則回 401 `claim_required`。先到先得。
+- **Match / join 認證**：`POST /api/match` 與 `POST /api/groups/[code]/join`
+  必須有 session cookie，且 body 中的 `me` / `studentId` 會被 server 用 session
+  的 studentId 覆蓋（無法強拉他人入群）。
+- **Rate limit**：每個 mutating route 都有 sliding-window IP 配額（記憶體版，
+  serverless 部署需改用 Redis）。
+- **Body cap**：每個路由都有獨立的 body size 上限（`lib/body-limits.ts`）。
+- **GET /api/schedules 僅 dev**：production 回 404，避免列舉學號是否存在。
+- **群組到期**：建立後 24h TTL（MongoDB TTL index），成員可 `POST /api/groups/[code]/extend`
+  延長。
+- **群組成員顯示**：UI 預設顯示為「成員 1、成員 2」，按下「顯示學號」才揭露。
+- **刪除自己的資料**：`DELETE /api/schedules`（需 session）。
+
+## 行事曆匯出
+
+群組創建者鎖定一個 free block + 指定日期後，`/group/[code]` 上會出現兩個按鈕：
+
+- **加到 Google Calendar** — 一鍵深連結，預填標題 / 時間（Asia/Taipei）/ 地點 / 描述
+- **下載 .ics** — 含 VTIMEZONE 的標準 iCalendar，TimeTree（設定 → 行事曆匯入）/
+  Apple Calendar / Outlook / 任何 iCal 相容 app 都吃
+
+伺服器在 confirm 時會 **重新計算** 一次目前的 common free blocks，確認指定的
+blockKey 仍然存在，避免 client 偽造（例如已有人退群、課表被改）。
 
 ## 排序啟發
 
 `score = length + (isWeekday ? 14 : 0)`
 平日永遠優先於週末，同類內以連續長度排序。`lib/matching.ts`。
+
+## 行動版（Flutter）
+
+`mobile/` 子資料夾為 iOS/Android 客戶端，重用同一個 backend，只負責 match 與
+group 互通，不做課表擷取（仍走桌機 bookmarklet）。詳見
+[`mobile/README.md`](./mobile/README.md)。
 
 ## 指令
 
