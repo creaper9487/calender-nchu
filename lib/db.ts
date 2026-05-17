@@ -1,9 +1,13 @@
 import type { Db } from "mongodb";
-import clientPromise from "./mongodb";
 
 let indexesEnsured = false;
+let dbOverride: Db | null = null;
 
 export async function getDb(): Promise<Db> {
+  if (dbOverride) return dbOverride;
+  // Dynamic import so tests that inject a fake db never load the real
+  // mongodb client module (which would attempt to connect at load time).
+  const { default: clientPromise } = await import("./mongodb");
   const client = await clientPromise;
   const db = client.db("test");
   if (!indexesEnsured) {
@@ -22,4 +26,9 @@ export async function getDb(): Promise<Db> {
     }
   }
   return db;
+}
+
+export function _setDbForTest(db: Db | null): void {
+  dbOverride = db;
+  indexesEnsured = true;
 }

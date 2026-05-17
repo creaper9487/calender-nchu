@@ -41,9 +41,26 @@ export default function MatchClient() {
     ).slice(0, MAX_IDS);
   }, [searchParams]);
 
+  const [me, setMe] = useState<string | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
   const [ids, setIds] = useState<string[]>(initialIds);
   const [draft, setDraft] = useState("");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
+
+  useEffect(() => {
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then((d) => {
+        const id =
+          d?.ok && typeof d.studentId === "string" ? d.studentId : null;
+        setMe(id);
+        if (id) {
+          setIds((prev) => (prev.includes(id) ? prev : [id, ...prev]));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setSessionReady(true));
+  }, []);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -56,6 +73,7 @@ export default function MatchClient() {
   };
 
   const removeId = (id: string) => {
+    if (id === me) return;
     setIds(ids.filter((x) => x !== id));
   };
 
@@ -64,12 +82,13 @@ export default function MatchClient() {
       e.preventDefault();
       addDraft();
     } else if (e.key === "Backspace" && !draft && ids.length) {
-      setIds(ids.slice(0, -1));
+      const last = ids[ids.length - 1];
+      if (last !== me) setIds(ids.slice(0, -1));
     }
   };
 
   const submit = async () => {
-    if (ids.length < 2) return;
+    if (!me || ids.length < 2) return;
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
@@ -78,7 +97,7 @@ export default function MatchClient() {
       const res = await fetch("/api/match", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentIds: ids }),
+        body: JSON.stringify({ studentIds: ids, me }),
         signal: ac.signal,
       });
       const data: MatchResponse = await res.json();
@@ -101,7 +120,7 @@ export default function MatchClient() {
   };
 
   const draftValid = STUDENT_ID_RE.test(draft.trim());
-  const canSubmit = ids.length >= 2 && status.kind !== "loading";
+  const canSubmit = !!me && ids.length >= 2 && status.kind !== "loading";
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -111,7 +130,7 @@ export default function MatchClient() {
             找共同空堂
           </h1>
           <p className="text-gray-600 text-sm">
-            輸入要約的人的學號（含自己），按 Enter 或逗號加入。或
+            輸入要約的人的學號，按 Enter 或逗號加入。或
             <Link
               href="/group/new"
               className="text-blue-600 underline mx-1 hover:text-blue-800"
@@ -122,27 +141,49 @@ export default function MatchClient() {
           </p>
         </header>
 
+        {sessionReady && !me && (
+          <div
+            role="alert"
+            className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded text-sm"
+          >
+            還沒匯入你自己的課表，無法配對。
+            <Link href="/startup" className="ml-2 underline font-semibold">
+              立即匯入 →
+            </Link>
+          </div>
+        )}
+
         <section className="bg-white p-4 rounded-lg shadow-md">
           <label htmlFor={inputId} className="sr-only">
             學號清單
           </label>
           <div className="flex flex-wrap items-center gap-2 p-2 border border-gray-300 rounded bg-gray-50 min-h-[3rem] focus-within:ring-2 focus-within:ring-blue-400">
-            {ids.map((id) => (
-              <span
-                key={id}
-                className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 text-sm font-mono px-2 py-1 rounded"
-              >
-                {id}
-                <button
-                  type="button"
-                  onClick={() => removeId(id)}
-                  className="text-blue-600 hover:text-blue-900 font-bold leading-none focus:outline-none focus:ring-2 focus:ring-blue-400 rounded"
-                  aria-label={`移除 ${id}`}
+            {ids.map((id) => {
+              const locked = id === me;
+              return (
+                <span
+                  key={id}
+                  className={`inline-flex items-center gap-1 text-sm font-mono px-2 py-1 rounded ${
+                    locked
+                      ? "bg-blue-200 text-blue-900"
+                      : "bg-blue-100 text-blue-800"
+                  }`}
                 >
-                  ×
-                </button>
-              </span>
-            ))}
+                  {id}
+                  {locked && <span className="text-xs">(你)</span>}
+                  {!locked && (
+                    <button
+                      type="button"
+                      onClick={() => removeId(id)}
+                      className="text-blue-600 hover:text-blue-900 font-bold leading-none focus:outline-none focus:ring-2 focus:ring-blue-400 rounded"
+                      aria-label={`移除 ${id}`}
+                    >
+                      ×
+                    </button>
+                  )}
+                </span>
+              );
+            })}
             <input
               id={inputId}
               type="text"
@@ -152,7 +193,8 @@ export default function MatchClient() {
               onBlur={addDraft}
               placeholder={ids.length ? "" : "學號 (e.g. s1234567)"}
               autoComplete="off"
-              className="flex-1 min-w-[8rem] bg-transparent outline-none text-sm font-mono p-1"
+              disabled={!me}
+              className="flex-1 min-w-[8rem] bg-transparent outline-none text-sm font-mono p-1 disabled:opacity-50"
             />
           </div>
 

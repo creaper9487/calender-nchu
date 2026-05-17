@@ -14,7 +14,7 @@ type Status =
   | { kind: "idle" }
   | { kind: "posting" }
   | { kind: "success"; studentId: string }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string; code?: string };
 
 export default function ImportButton({ schedule }: Props) {
   const searchParams = useSearchParams();
@@ -33,6 +33,7 @@ export default function ImportButton({ schedule }: Props) {
       const res = await fetch("/api/schedules", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ studentId: studentId.trim(), schedule }),
       });
       const data = await res.json().catch(() => ({}));
@@ -40,18 +41,17 @@ export default function ImportButton({ schedule }: Props) {
         setStatus({
           kind: "error",
           message: data.error || `HTTP ${res.status}`,
+          code: data.code,
         });
         return;
       }
       const id = studentId.trim();
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem("studentId", id);
-      }
       if (groupCode) {
         await fetch(`/api/groups/${encodeURIComponent(groupCode)}/join`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ studentId: id }),
+          credentials: "same-origin",
+          body: "{}",
         }).catch(() => {});
       }
       setStatus({ kind: "success", studentId: id });
@@ -128,7 +128,13 @@ export default function ImportButton({ schedule }: Props) {
           role="alert"
           className="mt-3 p-2 bg-red-50 border border-red-200 text-red-800 rounded text-sm"
         >
-          匯入失敗：{status.message}
+          {status.code === "claim_required" ? (
+            <span>
+              此學號已被其他裝置認領。請使用當初匯入的同一個瀏覽器，或聯絡管理員協助。
+            </span>
+          ) : (
+            <span>匯入失敗：{status.message}</span>
+          )}
         </div>
       )}
     </div>

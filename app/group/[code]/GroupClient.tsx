@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RankedBlock } from "@/lib/schedule-types";
-import { STUDENT_ID_RE } from "@/lib/student-id";
 import { DAY_NAMES_ZH } from "@/lib/time-slots";
 
 interface Props {
@@ -25,20 +24,24 @@ const POLL_INTERVAL_MS = 5000;
 
 export default function GroupClient({ code }: Props) {
   const [studentId, setStudentId] = useState<string | null>(null);
-  const [studentIdReady, setStudentIdReady] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
   const [state, setState] = useState<GroupState | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [hasSchedule, setHasSchedule] = useState<boolean | null>(null);
+  const [reveal, setReveal] = useState(false);
+  const [extending, setExtending] = useState(false);
   const joinAttempted = useRef(false);
 
   useEffect(() => {
-    const stored =
-      typeof window !== "undefined"
-        ? window.localStorage.getItem("studentId") || ""
-        : "";
-    setStudentId(stored && STUDENT_ID_RE.test(stored) ? stored : null);
-    setStudentIdReady(true);
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then((d) => {
+        setStudentId(
+          d?.ok && typeof d.studentId === "string" ? d.studentId : null,
+        );
+      })
+      .catch(() => setStudentId(null))
+      .finally(() => setSessionReady(true));
   }, []);
 
   const fetchGroup = useCallback(async () => {
@@ -65,30 +68,19 @@ export default function GroupClient({ code }: Props) {
   }, [fetchGroup]);
 
   useEffect(() => {
-    if (!studentIdReady || !studentId || !state || joinAttempted.current)
-      return;
+    if (!sessionReady || !studentId || !state || joinAttempted.current) return;
     if (state.members.includes(studentId)) return;
     joinAttempted.current = true;
     fetch(`/api/groups/${encodeURIComponent(code)}/join`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ studentId }),
+      body: "{}",
     })
       .then(() => fetchGroup())
       .catch(() => {
         joinAttempted.current = false;
       });
-  }, [studentIdReady, studentId, state, code, fetchGroup]);
-
-  useEffect(() => {
-    if (!studentId) {
-      setHasSchedule(null);
-      return;
-    }
-    fetch(`/api/schedules?studentId=${encodeURIComponent(studentId)}`)
-      .then((res) => setHasSchedule(res.ok))
-      .catch(() => setHasSchedule(null));
-  }, [studentId]);
+  }, [sessionReady, studentId, state, code, fetchGroup]);
 
   const shareUrl =
     typeof window !== "undefined" ? window.location.href : `/group/${code}`;
@@ -115,6 +107,23 @@ export default function GroupClient({ code }: Props) {
     }
   };
 
+  const extend = async () => {
+    setExtending(true);
+    try {
+      const res = await fetch(
+        `/api/groups/${encodeURIComponent(code)}/extend`,
+        { method: "POST" },
+      );
+      if (res.ok) {
+        await fetchGroup();
+      }
+    } finally {
+      setExtending(false);
+    }
+  };
+
+  const isMember = !!studentId && state?.members.includes(studentId);
+
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto space-y-6">
@@ -125,6 +134,21 @@ export default function GroupClient({ code }: Props) {
           <p className="text-gray-600 text-sm">
             把這個頁面分享給朋友，他們進來後會自動加入。
           </p>
+          {state?.expiresAt && (
+            <p className="text-xs text-gray-500 mt-1">
+              到期：{new Date(state.expiresAt).toLocaleString("zh-TW")}
+              {isMember && (
+                <button
+                  type="button"
+                  onClick={extend}
+                  disabled={extending}
+                  className="ml-2 text-blue-600 underline disabled:opacity-50"
+                >
+                  {extending ? "延長中..." : "延長 24 小時"}
+                </button>
+              )}
+            </p>
+          )}
         </header>
 
         <section className="bg-white p-4 rounded-lg shadow-md flex flex-wrap gap-2 items-center justify-between">
@@ -149,7 +173,7 @@ export default function GroupClient({ code }: Props) {
           </div>
         )}
 
-        {studentIdReady && !studentId && (
+        {sessionReady && !studentId && (
           <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded">
             還沒匯入你自己的課表。
             <Link
@@ -161,22 +185,14 @@ export default function GroupClient({ code }: Props) {
           </div>
         )}
 
-        {studentIdReady && studentId && hasSchedule === false && (
-          <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded">
-            你的學號 <span className="font-mono">{studentId}</span>{" "}
-            還沒有匯入課表。
-            <Link
-              href={`/startup?group=${encodeURIComponent(code)}`}
-              className="ml-2 underline font-semibold"
-            >
-              匯入課表 →
-            </Link>
-          </div>
-        )}
-
         {state && (
           <>
-            <Members state={state} myId={studentId} />
+            <Members
+              state={state}
+              myId={studentId}
+              reveal={reveal}
+              onToggleReveal={() => setReveal((v) => !v)}
+            />
             <Blocks state={state} />
           </>
         )}
@@ -185,19 +201,41 @@ export default function GroupClient({ code }: Props) {
   );
 }
 
-function Members({ state, myId }: { state: GroupState; myId: string | null }) {
+function Members({
+  state,
+  myId,
+  reveal,
+  onToggleReveal,
+}: {
+  state: GroupState;
+  myId: string | null;
+  reveal: boolean;
+  onToggleReveal: () => void;
+}) {
   return (
     <section className="bg-white p-4 rounded-lg shadow-md">
-      <h2 className="text-md font-semibold text-gray-700 mb-2">
-        成員 ({state.members.length})
-      </h2>
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-md font-semibold text-gray-700">
+          成員 ({state.members.length})
+        </h2>
+        {state.members.length > 0 && (
+          <button
+            type="button"
+            onClick={onToggleReveal}
+            className="text-xs text-gray-500 underline hover:text-gray-700"
+          >
+            {reveal ? "隱藏學號" : "顯示學號"}
+          </button>
+        )}
+      </div>
       {state.members.length === 0 ? (
         <p className="text-sm text-gray-500">還沒有人加入。</p>
       ) : (
         <ul className="flex flex-wrap gap-2">
-          {state.members.map((id) => {
+          {state.members.map((id, idx) => {
             const isMe = id === myId;
             const missing = state.missing.includes(id);
+            const label = reveal || isMe ? id : `成員 ${idx + 1}`;
             return (
               <li
                 key={id}
@@ -210,7 +248,7 @@ function Members({ state, myId }: { state: GroupState; myId: string | null }) {
                 }`}
                 title={missing ? "未匯入課表" : ""}
               >
-                {id}
+                {label}
                 {isMe && <span className="ml-1 text-xs">(你)</span>}
                 {missing && <span className="ml-1 text-xs">⚠</span>}
               </li>
@@ -220,7 +258,7 @@ function Members({ state, myId }: { state: GroupState; myId: string | null }) {
       )}
       {state.missing.length > 0 && (
         <p className="text-xs text-amber-700 mt-2">
-          ⚠ 為標記的成員還沒匯入課表，他們不會被算進共同空堂。
+          ⚠ 標黃的成員還沒匯入課表，他們不會被算進共同空堂。
         </p>
       )}
     </section>

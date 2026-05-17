@@ -1,28 +1,37 @@
 import { NextResponse } from "next/server";
+import { BODY_LIMITS, readBoundedJson } from "@/lib/body-limits";
 import { getDb } from "@/lib/db";
 import {
   GROUP_TTL_HOURS,
   generateGroupCode,
   newGroupExpiry,
 } from "@/lib/group-code";
-import { STUDENT_ID_RE } from "@/lib/student-id";
+import { checkRateLimit, clientKey, rateLimitResponse } from "@/lib/rate-limit";
+import { getSession } from "@/lib/session";
 
 const MAX_ATTEMPTS = 5;
+const RL = { limit: 5, windowMs: 60_000, key: "groups:POST" };
 
 export async function POST(request: Request) {
-  try {
-    const body = (await request.json().catch(() => ({}))) as {
-      studentId?: unknown;
-    };
-    const creatorId =
-      typeof body.studentId === "string" ? body.studentId.trim() : "";
-    if (creatorId && !STUDENT_ID_RE.test(creatorId)) {
-      return NextResponse.json(
-        { ok: false, error: "Invalid studentId" },
-        { status: 400 },
-      );
-    }
+  const rl = checkRateLimit(clientKey(request, RL.key), RL.limit, RL.windowMs);
+  if (!rl.ok) return rateLimitResponse(rl);
 
+  const parsedBody = await readBoundedJson<Record<string, unknown>>(
+    request,
+    BODY_LIMITS.groupCreate,
+  );
+  if (!parsedBody.ok) {
+    return NextResponse.json(
+      { ok: false, error: parsedBody.error },
+      { status: parsedBody.status },
+    );
+  }
+
+  // Creator is derived from the authenticated session only. Body is ignored.
+  const session = await getSession(request);
+  const creatorId = session?.studentId ?? null;
+
+  try {
     const db = await getDb();
     const now = new Date();
     const expiresAt = newGroupExpiry();
@@ -33,7 +42,7 @@ export async function POST(request: Request) {
       try {
         await db.collection("groups").insertOne({
           code,
-          creatorId: creatorId || null,
+          creatorId,
           members: creatorId ? [creatorId] : [],
           createdAt: now,
           expiresAt,
@@ -45,7 +54,6 @@ export async function POST(request: Request) {
           ttlHours: GROUP_TTL_HOURS,
         });
       } catch (e) {
-        // Likely duplicate key — retry with new code
         lastErr = e;
       }
     }

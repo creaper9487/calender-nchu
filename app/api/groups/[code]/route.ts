@@ -7,13 +7,19 @@ import {
   intersectFree,
   rankBlocks,
 } from "@/lib/matching";
+import { checkRateLimit, clientKey, rateLimitResponse } from "@/lib/rate-limit";
 import type { Course } from "@/lib/schedule-types";
+
+const RL = { limit: 60, windowMs: 60_000, key: "groups:GET" };
 
 interface Params {
   params: Promise<{ code: string }>;
 }
 
-export async function GET(_request: Request, { params }: Params) {
+export async function GET(request: Request, { params }: Params) {
+  const rl = checkRateLimit(clientKey(request, RL.key), RL.limit, RL.windowMs);
+  if (!rl.ok) return rateLimitResponse(rl);
+
   try {
     const { code } = await params;
     if (!isValidGroupCode(code)) {
