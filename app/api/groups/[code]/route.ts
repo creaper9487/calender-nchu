@@ -60,13 +60,25 @@ export async function GET(request: Request, { params }: Params) {
       blocks = rankBlocks(findBlocks(intersectFree(masks)));
     }
 
+    const rawVotes =
+      group.votes && typeof group.votes === "object"
+        ? (group.votes as Record<string, unknown>)
+        : {};
+    const votes: Record<string, string[]> = {};
+    for (const [k, v] of Object.entries(rawVotes)) {
+      if (Array.isArray(v)) votes[k] = v.filter((s) => typeof s === "string");
+    }
+
     return NextResponse.json({
       ok: true,
       code,
+      creatorId: group.creatorId ?? null,
       members,
       found,
       missing,
       blocks,
+      votes,
+      confirmed: group.confirmed ?? null,
       expiresAt:
         group.expiresAt instanceof Date
           ? group.expiresAt.toISOString()

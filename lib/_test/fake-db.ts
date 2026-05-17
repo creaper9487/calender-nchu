@@ -43,6 +43,50 @@ function matchesFilter(doc: Doc, filter: Record<string, unknown>): boolean {
   return true;
 }
 
+function getAtPath(doc: Doc, path: string): unknown {
+  const parts = path.split(".");
+  let cur: unknown = doc;
+  for (const p of parts) {
+    if (cur && typeof cur === "object" && !Array.isArray(cur)) {
+      cur = (cur as Doc)[p];
+    } else {
+      return undefined;
+    }
+  }
+  return cur;
+}
+
+function setAtPath(doc: Doc, path: string, value: unknown): void {
+  const parts = path.split(".");
+  let cur: Doc = doc;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const k = parts[i];
+    if (!cur[k] || typeof cur[k] !== "object" || Array.isArray(cur[k])) {
+      cur[k] = {};
+    }
+    cur = cur[k] as Doc;
+  }
+  cur[parts[parts.length - 1]] = value;
+}
+
+function ensureArrayAtPath(doc: Doc, path: string): unknown[] {
+  const existing = getAtPath(doc, path);
+  if (Array.isArray(existing)) return existing;
+  const fresh: unknown[] = [];
+  setAtPath(doc, path, fresh);
+  return fresh;
+}
+
+function applyDotSet(doc: Doc, $set: Doc): void {
+  for (const [k, v] of Object.entries($set)) {
+    if (k.includes(".")) {
+      setAtPath(doc, k, v);
+    } else {
+      doc[k] = v;
+    }
+  }
+}
+
 function project<T extends Doc>(doc: T, projection: Record<string, 0 | 1>): T {
   const includes = Object.values(projection).some((v) => v === 1);
   const excludes = Object.values(projection).some((v) => v === 0);
@@ -121,6 +165,7 @@ class FakeCollection {
       $set?: Doc;
       $setOnInsert?: Doc;
       $addToSet?: Record<string, unknown>;
+      $pull?: Record<string, unknown>;
     },
     options?: { upsert?: boolean },
   ): Promise<UpdateResult> {
@@ -128,28 +173,34 @@ class FakeCollection {
     if (idx === -1) {
       if (options?.upsert) {
         const base: Doc = {};
-        // copy only top-level scalar keys from filter (not $expr/operators)
         for (const [k, v] of Object.entries(filter)) {
           if (!k.startsWith("$")) base[k] = v;
         }
         const newDoc: Doc = {
           ...base,
           ...(update.$setOnInsert || {}),
-          ...(update.$set || {}),
         };
+        if (update.$set) applyDotSet(newDoc, update.$set);
         this.docs.push(newDoc);
         return { matchedCount: 0, modifiedCount: 0, upsertedCount: 1 };
       }
       return { matchedCount: 0, modifiedCount: 0, upsertedCount: 0 };
     }
     const doc = this.docs[idx];
-    if (update.$set) Object.assign(doc, update.$set);
+    if (update.$set) applyDotSet(doc, update.$set);
     if (update.$addToSet) {
-      for (const [k, v] of Object.entries(update.$addToSet)) {
-        const cur = doc[k];
-        const arr = Array.isArray(cur) ? cur : [];
+      for (const [path, v] of Object.entries(update.$addToSet)) {
+        const arr = ensureArrayAtPath(doc, path);
         if (!arr.includes(v)) arr.push(v);
-        doc[k] = arr;
+      }
+    }
+    if (update.$pull) {
+      for (const [path, v] of Object.entries(update.$pull)) {
+        const arr = getAtPath(doc, path);
+        if (Array.isArray(arr)) {
+          const next = arr.filter((x) => x !== v);
+          setAtPath(doc, path, next);
+        }
       }
     }
     return { matchedCount: 1, modifiedCount: 1, upsertedCount: 0 };

@@ -44,3 +44,17 @@ export interface RankedBlock extends FreeBlock {
   score: number;
   isWeekday: boolean;
 }
+
+export interface ConfirmedMeeting {
+  blockKey: string;
+  dayOfWeek: number;
+  fromPeriod: number;
+  toPeriod: number;
+  fromTime: string;
+  toTime: string;
+  date: string; // YYYY-MM-DD, Asia/Taipei
+  title: string;
+  location?: string;
+  confirmedBy: string;
+  confirmedAt: string; // ISO
+}

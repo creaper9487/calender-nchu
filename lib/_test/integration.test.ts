@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import type { Db } from "mongodb";
+import {
+  POST as CONFIRM,
+  DELETE as CONFIRM_DELETE,
+} from "../../app/api/groups/[code]/confirm/route";
+import { GET as ICS } from "../../app/api/groups/[code]/ics/route";
 import { POST as JOIN } from "../../app/api/groups/[code]/join/route";
+import { POST as VOTE } from "../../app/api/groups/[code]/vote/route";
 import { POST as GROUPS_POST } from "../../app/api/groups/route";
 import { POST as MATCH } from "../../app/api/match/route";
 import { GET as ME } from "../../app/api/me/route";
@@ -349,6 +355,227 @@ describe("Body size cap", () => {
       }),
     );
     assert.equal(res.status, 413);
+  });
+});
+
+describe("Voting + confirm flow", () => {
+  async function makeUser(id: string): Promise<string> {
+    const r = await POST(
+      makeReq("/api/schedules", {
+        method: "POST",
+        body: { studentId: id, schedule: VALID_SCHEDULE },
+      }),
+    );
+    return nameValueOnly(getSetCookie(r) ?? "");
+  }
+
+  async function setupGroup() {
+    const aliceCookie = await makeUser("alice123");
+    const bobCookie = await makeUser("bob12345");
+    const created = await GROUPS_POST(
+      makeReq("/api/groups", {
+        method: "POST",
+        body: {},
+        cookie: aliceCookie,
+      }),
+    );
+    const { code } = await created.json();
+    await JOIN(
+      makeReq(`/api/groups/${code}/join`, {
+        method: "POST",
+        cookie: bobCookie,
+      }),
+      { params: Promise.resolve({ code }) },
+    );
+    return { code, aliceCookie, bobCookie };
+  }
+
+  // VALID_SCHEDULE has one course on Mon period 0, so Tue period 0..12 is
+  // a common free block: blockKey = "1-0-12"
+  const sampleBlockKey = "1-0-12";
+
+  it("rejects unauthenticated vote", async () => {
+    const { code } = await setupGroup();
+    const res = await VOTE(
+      makeReq(`/api/groups/${code}/vote`, {
+        method: "POST",
+        body: { blockKey: sampleBlockKey },
+      }),
+      { params: Promise.resolve({ code }) },
+    );
+    assert.equal(res.status, 401);
+  });
+
+  it("rejects vote from non-member", async () => {
+    const { code } = await setupGroup();
+    const outsider = await makeUser("carol123");
+    const res = await VOTE(
+      makeReq(`/api/groups/${code}/vote`, {
+        method: "POST",
+        cookie: outsider,
+        body: { blockKey: sampleBlockKey },
+      }),
+      { params: Promise.resolve({ code }) },
+    );
+    assert.equal(res.status, 403);
+  });
+
+  it("toggles a member's vote", async () => {
+    const { code, aliceCookie } = await setupGroup();
+    const r1 = await VOTE(
+      makeReq(`/api/groups/${code}/vote`, {
+        method: "POST",
+        cookie: aliceCookie,
+        body: { blockKey: sampleBlockKey },
+      }),
+      { params: Promise.resolve({ code }) },
+    );
+    assert.equal(r1.status, 200);
+    assert.equal((await r1.json()).voted, true);
+
+    let group = await db.collection("groups").findOne({ code });
+    let votes = (group?.votes as Record<string, string[]>) ?? {};
+    assert.deepEqual(votes[sampleBlockKey], ["alice123"]);
+
+    // toggle off
+    const r2 = await VOTE(
+      makeReq(`/api/groups/${code}/vote`, {
+        method: "POST",
+        cookie: aliceCookie,
+        body: { blockKey: sampleBlockKey },
+      }),
+      { params: Promise.resolve({ code }) },
+    );
+    assert.equal(r2.status, 200);
+    assert.equal((await r2.json()).voted, false);
+
+    group = await db.collection("groups").findOne({ code });
+    votes = (group?.votes as Record<string, string[]>) ?? {};
+    assert.deepEqual(votes[sampleBlockKey] ?? [], []);
+  });
+
+  it("non-creator cannot confirm", async () => {
+    const { code, bobCookie } = await setupGroup();
+    const res = await CONFIRM(
+      makeReq(`/api/groups/${code}/confirm`, {
+        method: "POST",
+        cookie: bobCookie,
+        body: {
+          blockKey: sampleBlockKey,
+          date: "2025-05-20",
+          title: "夠咪亭",
+        },
+      }),
+      { params: Promise.resolve({ code }) },
+    );
+    assert.equal(res.status, 403);
+  });
+
+  it("rejects confirm with invalid blockKey", async () => {
+    const { code, aliceCookie } = await setupGroup();
+    const res = await CONFIRM(
+      makeReq(`/api/groups/${code}/confirm`, {
+        method: "POST",
+        cookie: aliceCookie,
+        body: {
+          blockKey: "99-99-99",
+          date: "2025-05-20",
+          title: "夠咪亭",
+        },
+      }),
+      { params: Promise.resolve({ code }) },
+    );
+    assert.equal(res.status, 400);
+  });
+
+  it("creator can confirm a real block + .ics returns text/calendar", async () => {
+    const { code, aliceCookie } = await setupGroup();
+    const confirmRes = await CONFIRM(
+      makeReq(`/api/groups/${code}/confirm`, {
+        method: "POST",
+        cookie: aliceCookie,
+        body: {
+          blockKey: sampleBlockKey,
+          date: "2025-05-20",
+          title: "讀書會",
+          location: "圖資 3F",
+        },
+      }),
+      { params: Promise.resolve({ code }) },
+    );
+    assert.equal(confirmRes.status, 200);
+    const body = await confirmRes.json();
+    assert.equal(body.confirmed.title, "讀書會");
+    assert.equal(body.confirmed.date, "2025-05-20");
+
+    const icsRes = await ICS(makeReq(`/api/groups/${code}/ics`), {
+      params: Promise.resolve({ code }),
+    });
+    assert.equal(icsRes.status, 200);
+    assert.ok(icsRes.headers.get("content-type")?.includes("text/calendar"));
+    const ics = await icsRes.text();
+    assert.ok(ics.includes("SUMMARY:讀書會"));
+    assert.ok(ics.includes("LOCATION:圖資 3F"));
+    assert.ok(ics.includes("DTSTART;TZID=Asia/Taipei:20250520T"));
+  });
+
+  it("votes are blocked once confirmed", async () => {
+    const { code, aliceCookie } = await setupGroup();
+    await CONFIRM(
+      makeReq(`/api/groups/${code}/confirm`, {
+        method: "POST",
+        cookie: aliceCookie,
+        body: {
+          blockKey: sampleBlockKey,
+          date: "2025-05-20",
+          title: "夠咪亭",
+        },
+      }),
+      { params: Promise.resolve({ code }) },
+    );
+    const res = await VOTE(
+      makeReq(`/api/groups/${code}/vote`, {
+        method: "POST",
+        cookie: aliceCookie,
+        body: { blockKey: sampleBlockKey },
+      }),
+      { params: Promise.resolve({ code }) },
+    );
+    assert.equal(res.status, 409);
+  });
+
+  it("creator can unconfirm", async () => {
+    const { code, aliceCookie } = await setupGroup();
+    await CONFIRM(
+      makeReq(`/api/groups/${code}/confirm`, {
+        method: "POST",
+        cookie: aliceCookie,
+        body: {
+          blockKey: sampleBlockKey,
+          date: "2025-05-20",
+          title: "夠咪亭",
+        },
+      }),
+      { params: Promise.resolve({ code }) },
+    );
+    const res = await CONFIRM_DELETE(
+      makeReq(`/api/groups/${code}/confirm`, {
+        method: "DELETE",
+        cookie: aliceCookie,
+      }),
+      { params: Promise.resolve({ code }) },
+    );
+    assert.equal(res.status, 200);
+    const group = await db.collection("groups").findOne({ code });
+    assert.equal(group?.confirmed, null);
+  });
+
+  it(".ics 404s when no meeting confirmed", async () => {
+    const { code } = await setupGroup();
+    const res = await ICS(makeReq(`/api/groups/${code}/ics`), {
+      params: Promise.resolve({ code }),
+    });
+    assert.equal(res.status, 404);
   });
 });
 

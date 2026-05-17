@@ -2,7 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { RankedBlock } from "@/lib/schedule-types";
+import {
+  buildGoogleCalendarUrl,
+  blockKey as makeBlockKey,
+  nextDateForDayOfWeek,
+} from "@/lib/calendar";
+import type { ConfirmedMeeting, RankedBlock } from "@/lib/schedule-types";
 import { DAY_NAMES_ZH } from "@/lib/time-slots";
 
 interface Props {
@@ -12,10 +17,13 @@ interface Props {
 interface GroupState {
   ok: boolean;
   code: string;
+  creatorId: string | null;
   members: string[];
   found: string[];
   missing: string[];
   blocks: RankedBlock[];
+  votes: Record<string, string[]>;
+  confirmed: ConfirmedMeeting | null;
   expiresAt?: string;
   error?: string;
 }
@@ -123,6 +131,45 @@ export default function GroupClient({ code }: Props) {
   };
 
   const isMember = !!studentId && state?.members.includes(studentId);
+  const isHost =
+    !!studentId &&
+    !!state &&
+    (state.creatorId === studentId || (state.creatorId === null && isMember));
+
+  const vote = async (key: string) => {
+    if (!isMember) return;
+    await fetch(`/api/groups/${encodeURIComponent(code)}/vote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ blockKey: key }),
+    });
+    await fetchGroup();
+  };
+
+  const confirm = async (args: {
+    blockKey: string;
+    date: string;
+    title: string;
+    location?: string;
+  }) => {
+    const res = await fetch(`/api/groups/${encodeURIComponent(code)}/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(args),
+    });
+    await fetchGroup();
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+  };
+
+  const unconfirm = async () => {
+    await fetch(`/api/groups/${encodeURIComponent(code)}/confirm`, {
+      method: "DELETE",
+    });
+    await fetchGroup();
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -185,6 +232,15 @@ export default function GroupClient({ code }: Props) {
           </div>
         )}
 
+        {state?.confirmed && (
+          <ConfirmedPanel
+            code={code}
+            confirmed={state.confirmed}
+            isHost={!!isHost}
+            onUnconfirm={unconfirm}
+          />
+        )}
+
         {state && (
           <>
             <Members
@@ -193,7 +249,14 @@ export default function GroupClient({ code }: Props) {
               reveal={reveal}
               onToggleReveal={() => setReveal((v) => !v)}
             />
-            <Blocks state={state} />
+            <Blocks
+              state={state}
+              myId={studentId}
+              isMember={!!isMember}
+              isHost={!!isHost}
+              onVote={vote}
+              onConfirm={confirm}
+            />
           </>
         )}
       </div>
@@ -265,7 +328,28 @@ function Members({
   );
 }
 
-function Blocks({ state }: { state: GroupState }) {
+function Blocks({
+  state,
+  myId,
+  isMember,
+  isHost,
+  onVote,
+  onConfirm,
+}: {
+  state: GroupState;
+  myId: string | null;
+  isMember: boolean;
+  isHost: boolean;
+  onVote: (key: string) => Promise<void>;
+  onConfirm: (args: {
+    blockKey: string;
+    date: string;
+    title: string;
+    location?: string;
+  }) => Promise<void>;
+}) {
+  const [pickerFor, setPickerFor] = useState<string | null>(null);
+
   if (state.found.length < 2) {
     return (
       <div className="bg-white p-6 rounded-lg shadow-md text-center text-gray-600 text-sm">
@@ -280,13 +364,15 @@ function Blocks({ state }: { state: GroupState }) {
       </div>
     );
   }
+  if (state.confirmed) return null;
+
   return (
-    <div
+    <section
       className="bg-white rounded-lg shadow-md overflow-hidden"
       aria-live="polite"
     >
       <table className="w-full text-sm">
-        <caption className="sr-only">共同空堂列表</caption>
+        <caption className="sr-only">共同空堂列表 — 可投票</caption>
         <thead className="bg-gray-100">
           <tr>
             <th scope="col" className="p-3 text-left font-semibold">
@@ -298,29 +384,272 @@ function Blocks({ state }: { state: GroupState }) {
             <th scope="col" className="p-3 text-center font-semibold">
               節數
             </th>
+            <th scope="col" className="p-3 text-center font-semibold">
+              票數
+            </th>
+            <th scope="col" className="p-3 text-right font-semibold">
+              動作
+            </th>
           </tr>
         </thead>
         <tbody>
-          {state.blocks.map((b) => (
-            <tr
-              key={`${b.dayOfWeek}-${b.fromPeriod}`}
-              className={`border-t border-gray-100 ${
-                b.isWeekday ? "" : "text-gray-500"
-              }`}
-            >
-              <td className="p-3 font-semibold">{DAY_NAMES_ZH[b.dayOfWeek]}</td>
-              <td className="p-3 font-mono">
-                {b.fromTime}–{b.toTime}
-                <span className="text-xs text-gray-400 ml-2">
-                  第 {b.fromPeriod + 1}
-                  {b.length > 1 ? `–${b.toPeriod + 1}` : ""} 節
-                </span>
-              </td>
-              <td className="p-3 text-center">{b.length}</td>
-            </tr>
-          ))}
+          {state.blocks.map((b) => {
+            const key = makeBlockKey(b.dayOfWeek, b.fromPeriod, b.toPeriod);
+            const voters = state.votes[key] ?? [];
+            const iVoted = !!myId && voters.includes(myId);
+            return (
+              <tr
+                key={key}
+                className={`border-t border-gray-100 ${
+                  b.isWeekday ? "" : "text-gray-500"
+                }`}
+              >
+                <td className="p-3 font-semibold">
+                  {DAY_NAMES_ZH[b.dayOfWeek]}
+                </td>
+                <td className="p-3 font-mono">
+                  {b.fromTime}–{b.toTime}
+                  <span className="text-xs text-gray-400 ml-2">
+                    第 {b.fromPeriod + 1}
+                    {b.length > 1 ? `–${b.toPeriod + 1}` : ""} 節
+                  </span>
+                </td>
+                <td className="p-3 text-center">{b.length}</td>
+                <td className="p-3 text-center font-semibold text-blue-700">
+                  {voters.length}
+                </td>
+                <td className="p-3 text-right space-x-1 whitespace-nowrap">
+                  <button
+                    type="button"
+                    onClick={() => onVote(key)}
+                    disabled={!isMember}
+                    className={`px-2 py-1 rounded text-xs font-semibold ${
+                      iVoted
+                        ? "bg-blue-600 text-white hover:bg-blue-700"
+                        : "border border-blue-600 text-blue-600 hover:bg-blue-50"
+                    } disabled:opacity-40 disabled:cursor-not-allowed`}
+                    title={isMember ? "" : "需要先加入群組"}
+                  >
+                    {iVoted ? "已投" : "投票"}
+                  </button>
+                  {isHost && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPickerFor((cur) => (cur === key ? null : key))
+                      }
+                      className="px-2 py-1 rounded text-xs font-semibold border border-green-600 text-green-700 hover:bg-green-50"
+                    >
+                      確認 →
+                    </button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
+
+      {pickerFor && isHost && (
+        <ConfirmPicker
+          blockKey={pickerFor}
+          block={
+            state.blocks.find(
+              (b) =>
+                makeBlockKey(b.dayOfWeek, b.fromPeriod, b.toPeriod) ===
+                pickerFor,
+            ) ?? null
+          }
+          onCancel={() => setPickerFor(null)}
+          onConfirm={async (args) => {
+            try {
+              await onConfirm(args);
+              setPickerFor(null);
+            } catch (e) {
+              alert(`確認失敗：${e instanceof Error ? e.message : "未知錯誤"}`);
+            }
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function ConfirmPicker({
+  blockKey,
+  block,
+  onCancel,
+  onConfirm,
+}: {
+  blockKey: string;
+  block: RankedBlock | null;
+  onCancel: () => void;
+  onConfirm: (args: {
+    blockKey: string;
+    date: string;
+    title: string;
+    location?: string;
+  }) => Promise<void>;
+}) {
+  const defaultDate = block ? nextDateForDayOfWeek(block.dayOfWeek) : "";
+  const [date, setDate] = useState(defaultDate);
+  const [title, setTitle] = useState("夠咪亭");
+  const [location, setLocation] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  if (!block) return null;
+
+  return (
+    <div className="p-4 bg-green-50 border-t border-green-200 space-y-3">
+      <div className="text-sm text-gray-700">
+        確認{" "}
+        <strong>
+          {DAY_NAMES_ZH[block.dayOfWeek]} {block.fromTime}–{block.toTime}
+        </strong>{" "}
+        的會議
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <label className="text-xs text-gray-600">
+          日期
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="mt-1 w-full p-2 border border-gray-300 rounded text-sm"
+          />
+        </label>
+        <label className="text-xs text-gray-600">
+          標題
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            maxLength={100}
+            className="mt-1 w-full p-2 border border-gray-300 rounded text-sm"
+          />
+        </label>
+        <label className="text-xs text-gray-600">
+          地點（選填）
+          <input
+            type="text"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            maxLength={200}
+            placeholder="例：圖資 3F"
+            className="mt-1 w-full p-2 border border-gray-300 rounded text-sm"
+          />
+        </label>
+      </div>
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800"
+        >
+          取消
+        </button>
+        <button
+          type="button"
+          disabled={!date || !title.trim() || submitting}
+          onClick={async () => {
+            setSubmitting(true);
+            try {
+              await onConfirm({
+                blockKey,
+                date,
+                title: title.trim(),
+                location: location.trim() || undefined,
+              });
+            } finally {
+              setSubmitting(false);
+            }
+          }}
+          className="px-4 py-1.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white rounded text-sm font-semibold"
+        >
+          {submitting ? "確認中..." : "確認並鎖定"}
+        </button>
+      </div>
     </div>
+  );
+}
+
+function ConfirmedPanel({
+  code,
+  confirmed,
+  isHost,
+  onUnconfirm,
+}: {
+  code: string;
+  confirmed: ConfirmedMeeting;
+  isHost: boolean;
+  onUnconfirm: () => Promise<void>;
+}) {
+  const googleUrl = buildGoogleCalendarUrl({
+    title: confirmed.title || "夠咪亭",
+    date: confirmed.date,
+    fromTime: confirmed.fromTime,
+    toTime: confirmed.toTime,
+    location: confirmed.location,
+    details: `中興夠咪亭 — 群組 ${code}`,
+  });
+  const icsUrl = `/api/groups/${encodeURIComponent(code)}/ics`;
+
+  const dateLabel = new Date(`${confirmed.date}T00:00:00`).toLocaleDateString(
+    "zh-TW",
+    { year: "numeric", month: "long", day: "numeric", weekday: "long" },
+  );
+
+  return (
+    <section className="bg-green-50 border-2 border-green-300 rounded-lg p-4 space-y-3">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="text-xs text-green-700 font-semibold uppercase tracking-wide">
+            ✓ 已確認
+          </div>
+          <h2 className="text-xl font-bold text-gray-900 mt-1">
+            {confirmed.title || "夠咪亭"}
+          </h2>
+          <p className="text-sm text-gray-700 mt-1">
+            {dateLabel}
+            <span className="font-mono ml-2">
+              {confirmed.fromTime}–{confirmed.toTime}
+            </span>
+          </p>
+          {confirmed.location && (
+            <p className="text-sm text-gray-600 mt-1">
+              📍 {confirmed.location}
+            </p>
+          )}
+        </div>
+        {isHost && (
+          <button
+            type="button"
+            onClick={onUnconfirm}
+            className="text-xs text-gray-500 underline hover:text-gray-700"
+          >
+            取消鎖定
+          </button>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2 pt-2 border-t border-green-200">
+        <a
+          href={googleUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-semibold"
+        >
+          加到 Google Calendar
+        </a>
+        <a
+          href={icsUrl}
+          className="px-3 py-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded text-sm font-semibold"
+        >
+          下載 .ics（TimeTree / Apple / Outlook）
+        </a>
+      </div>
+      <p className="text-xs text-gray-500">
+        💡 TimeTree：下載 .ics 後在 app 內「設定 → 行事曆匯入 → 從檔案匯入」。
+      </p>
+    </section>
   );
 }
