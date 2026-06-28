@@ -121,8 +121,7 @@ export default function Home() {
                 onMouseEnter={handleMouseEnter}
                 onMouseLeave={handleMouseLeave}
                 onClick={() => {
-                  // Handle button click
-                  router.push('/startup');
+                  router.push('/import');
                 }}
               >
                 快咪起來
@@ -149,8 +148,26 @@ export default function Home() {
           </div>
         </div>
       </div>
-      <div className='h-screen bg-gray-200'> {/* Added bg color for visibility */}
-        <h2 className="text-2xl p-8">Second Screen</h2>
+      <div className='min-h-screen bg-gray-100 flex flex-col items-center justify-center gap-6 p-8'>
+        <h2 className="text-2xl font-bold text-gray-800">怎麼開始？</h2>
+        <div className="grid sm:grid-cols-2 gap-4 w-full max-w-2xl">
+          <button
+            onClick={() => router.push('/import')}
+            className="p-6 bg-white rounded-2xl shadow hover:shadow-md transition-shadow text-left"
+          >
+            <div className="text-3xl mb-2">🙋</div>
+            <div className="text-lg font-bold text-gray-900">我是成員</div>
+            <p className="text-sm text-gray-500 mt-1">匯入課表，產生我的空檔 QR 給組長掃</p>
+          </button>
+          <button
+            onClick={() => router.push('/host')}
+            className="p-6 bg-white rounded-2xl shadow hover:shadow-md transition-shadow text-left"
+          >
+            <div className="text-3xl mb-2">📷</div>
+            <div className="text-lg font-bold text-gray-900">我是組長</div>
+            <p className="text-sm text-gray-500 mt-1">掃描大家的 QR，找出共同空檔並約時間</p>
+          </button>
+        </div>
       </div>
     </>
   );
